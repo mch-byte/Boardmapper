@@ -4,6 +4,7 @@
 
 Map unknown ICs, document pin functions, draw inter-chip connections, and overlay everything on a photo of the actual board. No accounts, no backend, no cost — everything runs in your browser.
 
+Try it here -> https://mch-byte.github.io/Boardmapper/
 ## Features
 
 ### Chip Manager
