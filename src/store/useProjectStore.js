@@ -3,7 +3,7 @@ import { create } from 'zustand'
 const generateId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
 const createDefaultPin = (number) => ({
-  number,
+  number: String(number),
   name: '',
   type: 'unknown',
   notes: '',
@@ -55,8 +55,27 @@ const normalizePinType = (value) => {
   return PIN_TYPE_ALIASES[raw] || 'unknown'
 }
 
+const normalizePinNumber = (value, fallbackNumber = null) => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (normalized) return normalized
+  }
+
+  if (fallbackNumber !== null && fallbackNumber !== undefined) {
+    return String(fallbackNumber)
+  }
+
+  return ''
+}
+
+const pinNumbersMatch = (a, b) => normalizePinNumber(a) === normalizePinNumber(b)
+
 const normalizePin = (pin, number) => ({
-  number,
+  number: normalizePinNumber(pin?.number, number),
   name: pin?.name || '',
   type: normalizePinType(pin?.type),
   notes: pin?.notes || pin?.description || '',
@@ -64,11 +83,10 @@ const normalizePin = (pin, number) => ({
 })
 
 const normalizeConnectionInput = (connection) => {
-  const fromPin = Number(connection?.fromPin)
-  const toPin = Number(connection?.toPin)
+  const fromPin = normalizePinNumber(connection?.fromPin)
+  const toPin = normalizePinNumber(connection?.toPin)
   if (!connection?.fromChip || !connection?.toChip) return null
-  if (!Number.isInteger(fromPin) || !Number.isInteger(toPin)) return null
-  if (fromPin < 1 || toPin < 1) return null
+  if (!fromPin || !toPin) return null
 
   return {
     fromChip: connection.fromChip,
@@ -82,8 +100,8 @@ const normalizeConnectionInput = (connection) => {
 }
 
 const connectionKey = (connection) => {
-  const a = `${connection.fromChip}:${connection.fromPin}`
-  const b = `${connection.toChip}:${connection.toPin}`
+  const a = `${connection.fromChip}:${normalizePinNumber(connection.fromPin)}`
+  const b = `${connection.toChip}:${normalizePinNumber(connection.toPin)}`
   return a < b ? `${a}|${b}` : `${b}|${a}`
 }
 
@@ -211,7 +229,7 @@ const useProjectStore = create((set, get) => ({
       chips: state.chips.map((c) => {
         if (c.id !== chipId) return c
         const newPins = Array.from({ length: pinCount }, (_, i) => {
-          const existing = c.pins.find((p) => Number(p.number) === i + 1)
+          const existing = c.pins.find((p) => pinNumbersMatch(p.number, i + 1))
           return normalizePin(existing || createDefaultPin(i + 1), i + 1)
         })
         return {
@@ -223,25 +241,32 @@ const useProjectStore = create((set, get) => ({
         }
       }),
       connections: state.connections.filter((connection) => {
-        if (connection.fromChip === chipId && Number(connection.fromPin) > pinCount) return false
-        if (connection.toChip === chipId && Number(connection.toPin) > pinCount) return false
+        if (connection.fromChip === chipId) {
+          const pin = Number(connection.fromPin)
+          if (!Number.isInteger(pin) || pin < 1 || pin > pinCount) return false
+        }
+        if (connection.toChip === chipId) {
+          const pin = Number(connection.toPin)
+          if (!Number.isInteger(pin) || pin < 1 || pin > pinCount) return false
+        }
         return true
       }),
       selectedPinNumber: null,
       project: { ...state.project, modified: new Date().toISOString() },
     }))
   },
-  setSelectedPin: (pinNumber) => set({ selectedPinNumber: pinNumber }),
+  setSelectedPin: (pinNumber) => set({ selectedPinNumber: normalizePinNumber(pinNumber) || null }),
   updatePin: (chipId, pinNumber, updates) => set((state) => {
     const normalizedUpdates = updates.type !== undefined
       ? { ...updates, type: normalizePinType(updates.type) }
       : updates
+    const targetPin = normalizePinNumber(pinNumber)
     return {
       chips: state.chips.map((c) => {
         if (c.id !== chipId) return c
         return {
           ...c,
-          pins: c.pins.map((p) => (p.number === pinNumber ? { ...p, ...normalizedUpdates } : p)),
+          pins: c.pins.map((p) => (pinNumbersMatch(p.number, targetPin) ? { ...p, ...normalizedUpdates } : p)),
         }
       }),
       project: { ...state.project, modified: new Date().toISOString() },
@@ -307,26 +332,30 @@ const useProjectStore = create((set, get) => ({
     try {
       const data = JSON.parse(json)
       const importedChips = (data.chips || []).map((chip) => {
+        const normalizedInputPins = Array.isArray(chip.pins)
+          ? chip.pins.map((pin, index) => normalizePin(pin, index + 1))
+          : []
+
         const inferredPinCount = Number(chip.pinCount)
-          || (Array.isArray(chip.pins) ? chip.pins.length : 0)
+          || normalizedInputPins.length
           || 0
         const normalizedPackage = normalizePackageName(chip.package)
+        const hasExplicitPins = normalizedInputPins.length > 0
 
-        const pins = Array.from({ length: inferredPinCount }, (_, i) => {
-          const existing = Array.isArray(chip.pins)
-            ? chip.pins.find((p) => Number(p.number) === i + 1)
-            : null
-          return normalizePin(existing || createDefaultPin(i + 1), i + 1)
-        })
+        const pins = hasExplicitPins
+          ? normalizedInputPins
+          : Array.from({ length: inferredPinCount }, (_, i) =>
+              normalizePin(createDefaultPin(i + 1), i + 1))
+        const pinCount = Math.max(inferredPinCount, pins.length)
 
         return {
           id: chip.id || generateId(),
           name: chip.name || 'Imported Chip',
           package: normalizedPackage,
-          pinCount: inferredPinCount,
+          pinCount,
           layoutKind: inferChipLayoutKind(
             normalizedPackage,
-            inferredPinCount,
+            pinCount,
             chip.layoutKind
           ),
           isFromLibrary: Boolean(chip.isFromLibrary),
@@ -336,28 +365,27 @@ const useProjectStore = create((set, get) => ({
         }
       })
 
-      const pinCountByChipId = new Map(importedChips.map((chip) => [chip.id, chip.pinCount]))
-      const importedConnections = (data.connections || []).filter((connection) => {
-        const fromCount = pinCountByChipId.get(connection.fromChip)
-        const toCount = pinCountByChipId.get(connection.toChip)
-        if (!fromCount || !toCount) return false
+      const pinSetByChipId = new Map(
+        importedChips.map((chip) => [
+          chip.id,
+          new Set(chip.pins.map((pin) => normalizePinNumber(pin.number))),
+        ])
+      )
+      const importedConnections = (data.connections || []).map((connection) => {
+        const normalized = normalizeConnectionInput(connection)
+        if (!normalized) return null
 
-        const fromPin = Number(connection.fromPin)
-        const toPin = Number(connection.toPin)
-        if (!Number.isInteger(fromPin) || !Number.isInteger(toPin)) return false
-        if (fromPin < 1 || fromPin > fromCount) return false
-        if (toPin < 1 || toPin > toCount) return false
-        return true
-      }).map((connection) => ({
-        id: connection.id || generateId(),
-        fromChip: connection.fromChip,
-        fromPin: Number(connection.fromPin),
-        toChip: connection.toChip,
-        toPin: Number(connection.toPin),
-        protocol: connection.protocol || 'other',
-        signalName: connection.signalName || '',
-        notes: connection.notes || '',
-      }))
+        const fromPins = pinSetByChipId.get(normalized.fromChip)
+        const toPins = pinSetByChipId.get(normalized.toChip)
+        if (!fromPins || !toPins) return null
+        if (!fromPins.has(normalized.fromPin)) return null
+        if (!toPins.has(normalized.toPin)) return null
+
+        return {
+          id: connection.id || generateId(),
+          ...normalized,
+        }
+      }).filter(Boolean)
 
       set({
         project: data.project || { name: 'Imported', created: new Date().toISOString(), modified: new Date().toISOString() },
@@ -376,24 +404,27 @@ const useProjectStore = create((set, get) => ({
   },
   importChipFromLibrary: (libraryChip) => {
     const normalizedPackage = normalizePackageName(libraryChip.package)
+    const pins = Array.isArray(libraryChip.pins)
+      ? libraryChip.pins.map((p, index) => normalizePin({
+        number: p.number,
+        name: p.name || '',
+        type: p.type,
+        description: p.description || '',
+      }, index + 1))
+      : []
+
     const chip = createDefaultChip({
       name: libraryChip.name,
       package: normalizedPackage,
-      pinCount: libraryChip.pins.length,
+      pinCount: pins.length,
       layoutKind: inferChipLayoutKind(
         normalizedPackage,
-        libraryChip.pins.length,
+        pins.length,
         libraryChip.layoutKind
       ),
       isFromLibrary: true,
       libraryId: libraryChip.id,
-      pins: libraryChip.pins.map((p) => ({
-        number: p.number,
-        name: p.name || '',
-        type: normalizePinType(p.type),
-        notes: p.description || '',
-        connectedTo: '',
-      })),
+      pins,
     })
     set((state) => ({
       chips: [...state.chips, chip],

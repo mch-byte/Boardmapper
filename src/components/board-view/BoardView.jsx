@@ -5,6 +5,10 @@ import BoardCanvas from './BoardCanvas'
 
 const CHIP_DRAG_MIME = 'application/x-boardmapper-chip'
 
+function pinNumberEquals(a, b) {
+  return String(a) === String(b)
+}
+
 export default function BoardView() {
   const chips = useProjectStore((s) => s.chips)
   const connections = useProjectStore((s) => s.connections)
@@ -27,7 +31,7 @@ export default function BoardView() {
   useEffect(() => {
     if (!pendingPin) return
     const chip = chipsById.get(pendingPin.chipId)
-    const pinExists = chip?.pins.some((pin) => pin.number === pendingPin.pinNumber)
+    const pinExists = chip?.pins.some((pin) => pinNumberEquals(pin.number, pendingPin.pinNumber))
     if (!chip || !chip.boardPosition || !pinExists) {
       setPendingPin(null)
     }
@@ -76,7 +80,7 @@ export default function BoardView() {
 
   const formatPendingLabel = (pinRef) => {
     const chip = chipsById.get(pinRef.chipId)
-    const pin = chip?.pins.find((p) => p.number === pinRef.pinNumber)
+    const pin = chip?.pins.find((p) => pinNumberEquals(p.number, pinRef.pinNumber))
     if (!chip || !pin) return 'Unknown pin'
     return `${chip.name} - Pin ${pin.number}${pin.name ? ` / ${pin.name}` : ''}`
   }
@@ -91,7 +95,8 @@ export default function BoardView() {
       return
     }
 
-    const samePin = pendingPin.chipId === pinRef.chipId && pendingPin.pinNumber === pinRef.pinNumber
+    const samePin = pendingPin.chipId === pinRef.chipId
+      && pinNumberEquals(pendingPin.pinNumber, pinRef.pinNumber)
     if (samePin) {
       setPendingPin(null)
       return

@@ -4,6 +4,10 @@ function formatPinLabel(pin) {
   return `Pin ${pin.number}${pin.name ? ` / ${pin.name}` : ''}`
 }
 
+function pinNumberEquals(a, b) {
+  return String(a) === String(b)
+}
+
 export default function PinTable({ chip }) {
   const selectedPinNumber = useProjectStore((s) => s.selectedPinNumber)
   const setSelectedPin = useProjectStore((s) => s.setSelectedPin)
@@ -12,19 +16,19 @@ export default function PinTable({ chip }) {
 
   const getConnectionSummary = (pin) => {
     const linkedConnections = connections.filter((connection) =>
-      (connection.fromChip === chip.id && connection.fromPin === pin.number) ||
-      (connection.toChip === chip.id && connection.toPin === pin.number)
+      (connection.fromChip === chip.id && pinNumberEquals(connection.fromPin, pin.number)) ||
+      (connection.toChip === chip.id && pinNumberEquals(connection.toPin, pin.number))
     )
 
     if (linkedConnections.length === 0) return pin.connectedTo || '—'
 
     return linkedConnections.map((connection) => {
-      const otherEnd = connection.fromChip === chip.id && connection.fromPin === pin.number
+      const otherEnd = connection.fromChip === chip.id && pinNumberEquals(connection.fromPin, pin.number)
         ? { chipId: connection.toChip, pinNumber: connection.toPin }
         : { chipId: connection.fromChip, pinNumber: connection.fromPin }
 
       const otherChip = chips.find((item) => item.id === otherEnd.chipId)
-      const otherPin = otherChip?.pins.find((item) => item.number === otherEnd.pinNumber)
+      const otherPin = otherChip?.pins.find((item) => pinNumberEquals(item.number, otherEnd.pinNumber))
 
       if (!otherChip) return `Unknown chip - Pin ${otherEnd.pinNumber}`
       if (!otherPin) return `${otherChip.name} - Pin ${otherEnd.pinNumber}`
@@ -47,7 +51,7 @@ export default function PinTable({ chip }) {
         <tbody>
           {chip.pins.map((pin) => {
             const typeInfo = PIN_TYPES.find((t) => t.value === pin.type)
-            const selected = selectedPinNumber === pin.number
+            const selected = pinNumberEquals(selectedPinNumber, pin.number)
             const connectionSummary = getConnectionSummary(pin)
             return (
               <tr

@@ -23,8 +23,31 @@ const PIN_COLOR_BY_TYPE = PIN_TYPES.reduce((acc, type) => {
   return acc
 }, {})
 
+function normalizePinKey(pinNumber) {
+  if (pinNumber === null || pinNumber === undefined) return ''
+  return String(pinNumber).trim()
+}
+
+function getPinOrdinal(chip, pinNumber) {
+  const pins = Array.isArray(chip?.pins) ? chip.pins : []
+  if (!pins.length) return -1
+
+  const target = normalizePinKey(pinNumber)
+  if (!target) return -1
+
+  const index = pins.findIndex((pin) => normalizePinKey(pin.number) === target)
+  if (index >= 0) return index
+
+  const numeric = Number(target)
+  if (Number.isInteger(numeric) && numeric >= 1 && numeric <= pins.length) {
+    return numeric - 1
+  }
+
+  return -1
+}
+
 function getChipNodeLayout(chip) {
-  const pinCount = Number(chip?.pinCount || 0)
+  const pinCount = Math.max(Number(chip?.pinCount || 0), Array.isArray(chip?.pins) ? chip.pins.length : 0)
   const layoutKind = inferChipLayoutKind(chip?.package, pinCount, chip?.layoutKind)
 
   if (layoutKind === 'single') {
@@ -132,8 +155,12 @@ function getConnectionColor(connection, index) {
 }
 
 function getPinAnchorLocal(chip, pinNumber) {
-  const pin = Number(pinNumber)
-  if (!Number.isInteger(pin) || pin < 1) return null
+  const totalPins = Math.max(Number(chip?.pinCount || 0), Array.isArray(chip?.pins) ? chip.pins.length : 0)
+  if (totalPins < 1) return null
+
+  const pinOrdinal = getPinOrdinal(chip, pinNumber)
+  if (pinOrdinal < 0) return null
+  const pin = pinOrdinal + 1
 
   const layout = getChipNodeLayout(chip)
   const x0 = 0
@@ -177,7 +204,7 @@ function getPinAnchorLocal(chip, pinNumber) {
       }
     }
 
-    const idx = Math.max(0, chip.pinCount - pin)
+    const idx = Math.max(0, totalPins - pin)
     return {
       x: x0 + 8 + (idx + 1) * sideSpacingX,
       y: y0,
@@ -199,7 +226,7 @@ function getPinAnchorLocal(chip, pinNumber) {
       }
     }
 
-    const idxFromLeft = clamp(chip.pinCount - pin, 0, layout.bottomCount - 1)
+    const idxFromLeft = clamp(totalPins - pin, 0, layout.bottomCount - 1)
     return {
       x: x0 + inset + idxFromLeft * bottomSpacing,
       y: y0 + layout.height,
@@ -208,7 +235,7 @@ function getPinAnchorLocal(chip, pinNumber) {
   }
 
   const pinSpacing = (layout.height - 12) / layout.pinRows
-  const leftCount = Math.ceil(chip.pinCount / 2)
+  const leftCount = Math.ceil(totalPins / 2)
 
   if (pin <= leftCount) {
     const rowIndex = clamp(pin - 1, 0, layout.pinRows - 1)
@@ -610,7 +637,7 @@ function ChipNode({
         if (!anchor) return null
         const isPending = pendingPin
           && pendingPin.chipId === chip.id
-          && pendingPin.pinNumber === pin.number
+          && normalizePinKey(pendingPin.pinNumber) === normalizePinKey(pin.number)
         const color = PIN_COLOR_BY_TYPE[pin.type] || '#9ca3af'
         return (
           <Circle

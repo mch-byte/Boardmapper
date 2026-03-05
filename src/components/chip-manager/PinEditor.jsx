@@ -6,9 +6,13 @@ function formatPinLabel(pin) {
   return `Pin ${pin.number}${pin.name ? ` / ${pin.name}` : ''}`
 }
 
+function pinNumberEquals(a, b) {
+  return String(a) === String(b)
+}
+
 function getOtherConnectionEnd(connection, chipId, pinNumber) {
-  const isFrom = connection.fromChip === chipId && connection.fromPin === pinNumber
-  const isTo = connection.toChip === chipId && connection.toPin === pinNumber
+  const isFrom = connection.fromChip === chipId && pinNumberEquals(connection.fromPin, pinNumber)
+  const isTo = connection.toChip === chipId && pinNumberEquals(connection.toPin, pinNumber)
   if (!isFrom && !isTo) return null
 
   return isFrom
@@ -24,7 +28,7 @@ export default function PinEditor({ chip }) {
   const addConnection = useProjectStore((s) => s.addConnection)
   const removeConnection = useProjectStore((s) => s.removeConnection)
 
-  const pin = chip.pins.find((p) => p.number === selectedPinNumber)
+  const pin = chip.pins.find((p) => pinNumberEquals(p.number, selectedPinNumber))
   const otherChips = useMemo(
     () => chips.filter((item) => item.id !== chip.id),
     [chips, chip.id]
@@ -63,8 +67,8 @@ export default function PinEditor({ chip }) {
 
   const pinConnections = useMemo(
     () => connections.filter((connection) =>
-      (connection.fromChip === chip.id && connection.fromPin === pin?.number) ||
-      (connection.toChip === chip.id && connection.toPin === pin?.number)
+      (connection.fromChip === chip.id && pinNumberEquals(connection.fromPin, pin?.number)) ||
+      (connection.toChip === chip.id && pinNumberEquals(connection.toPin, pin?.number))
     ),
     [chip.id, connections, pin?.number]
   )
@@ -87,7 +91,7 @@ export default function PinEditor({ chip }) {
       fromChip: chip.id,
       fromPin: pin.number,
       toChip: targetChip.id,
-      toPin: Number(targetPinNumber),
+      toPin: targetPinNumber,
       protocol: 'other',
       signalName: '',
       notes: '',
@@ -185,7 +189,7 @@ export default function PinEditor({ chip }) {
             pinConnections.map((connection) => {
               const otherEnd = getOtherConnectionEnd(connection, chip.id, pin.number)
               const otherChip = chips.find((item) => item.id === otherEnd?.chipId)
-              const otherPin = otherChip?.pins.find((item) => item.number === otherEnd?.pinNumber)
+              const otherPin = otherChip?.pins.find((item) => pinNumberEquals(item.number, otherEnd?.pinNumber))
               return (
                 <div
                   key={connection.id}
